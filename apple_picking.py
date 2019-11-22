@@ -160,7 +160,7 @@ if __name__ == '__main__':
         apple_picking_obj.train_network(is_restore=True)
         output_base = os.path.join(ROOT, 'output_{}_{}.png')
 
-        for data_label, dataset in [['Training', apple_picking_obj.train[0]], ['Validation', apple_picking_obj.test[0]]]:
+        for data_label, dataset in [['Training', random.choice(apple_picking_obj.train)], ['Validation', random.choice(apple_picking_obj.test)]]:
             # Test a data set
             inputs, outputs = apple_picking_obj.train
             predictions = apple_picking_obj.model.predict(inputs)
