@@ -136,6 +136,17 @@ class ApplePicking:
         model.save(model_path)
         return model
 
+    def perf_nnet_LSTM(self, feature_dim, output_dim, model_path):
+        model = Sequential()
+        model.add(LSTM(32, return_sequences=True, input_shape=(self.window_size, feature_dim)))
+        # model.add(LSTM(hidden_neurons, return_sequences=True))
+        model.add(LSTM(32))
+        model.add(Dense(output_dim, activation='linear'))
+        model.compile(loss='mae', optimizer="adam", metrics=['mae', 'accuracy'])
+        print(model.summary())
+        model.save(model_path)
+        return model
+
     def perf_nnet_ann(self, feature_dim, output_dim, model_path):
         model = Sequential()
         model.add(Dense(32, activation='relu', input_shape=(feature_dim,)))
@@ -173,14 +184,21 @@ class ApplePicking:
             val_inputs = val_inputs.reshape(-1, feature_dim)
             print (train_inputs.shape, val_inputs.shape)
             self.model = self.perf_nnet_ann(feature_dim, output_dim, model_path)
+            shuffle = True
 
-        if net == 'Conv1D':
+        elif net == 'Conv1D':
             self.model = self.perf_nnet_conv1D(feature_dim, output_dim, model_path)
+            shuffle = True
+
+        elif net == 'LSTM':
+            self.model = self.perf_nnet_LSTM(feature_dim, output_dim, model_path)
+            shuffle = False
 
         if is_restore == True:
             self.model = keras.models.load_model(model_path)
-            
-        self.model.fit(train_inputs, train_labels, epochs=n_epoch, verbose=1, callbacks=[tensorboard_cb, checkpoint_cb], validation_data=(val_inputs, val_labels), shuffle=True)
+            shuffle = True
+
+        self.model.fit(train_inputs, train_labels, epochs=n_epoch, verbose=1, callbacks=[tensorboard_cb, checkpoint_cb], validation_data=(val_inputs, val_labels), shuffle=shuffle)
 
     def predict_network(self, net, model_name, inputs):
         if net =='ANN':
@@ -207,13 +225,19 @@ class ApplePicking:
 if __name__ == '__main__':
     
     mode = 'train_mode'
+    net = 'LSTM'
+    window_size = 5
+
     if len(sys.argv) > 1:
         mode = sys.argv[1]
 
-    apple_picking_obj = ApplePicking(window_size=10)
+    if len(sys.argv) > 2:
+        net = sys.argv[2]
+
+    apple_picking_obj = ApplePicking(window_size=window_size)
 
     if mode == 'train_mode':
-        apple_picking_obj.train_network(net='Conv1D', is_restore=False)
+        apple_picking_obj.train_network(net=net, is_restore=False)
 
     elif mode == 'predict_mode':
         # model_name = 'force_vec_pred_ws10_fdim11_Conv1D'
