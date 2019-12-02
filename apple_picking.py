@@ -297,32 +297,27 @@ if __name__ == '__main__':
 
         output_base = os.path.join(ROOT, 'output_{}_{}.png')
 
-        data_label = 'Training'
-        
-        if data_label == 'Testing':
-            inputs, outputs = apple_model.load_test_data()
 
-        elif data_label == 'Training':
-            inputs, outputs = apple_model.validation
-
-        inputs, outputs = shuffle(inputs, outputs, random_state=0)
-        predictions = apple_model.predict_network(inputs)
-        orientation_error = apple_model.orientation_error(outputs, predictions)
-        
-        orientation_arr = np.array(orientation_error)
-        print("Maximum Ang Error: ", np.max(orientation_arr))
-        print("Minimum Ang Error: ", np.min(orientation_arr))
-        print("Average Ang Error: ", np.mean(orientation_arr))
-        print("Std Deviation Ang: ", np.std(orientation_arr))
 
         # Plotting the error in the orientation
         plt.clf()
-        plt.plot(orientation_error, color='r')
-        
+        for label, dataset in [['Training', apple_model.train],
+                               ['Validation', apple_model.validation],
+                               ['Testing', apple_model.load_test_data()]]:
+
+            inputs, outputs = dataset
+            inputs, outputs = shuffle(inputs, outputs, random_state=0)
+            predictions = apple_model.predict_network(inputs)
+            orientation_error = apple_model.orientation_error(outputs, predictions)
+            orientation_arr = np.array(orientation_error)
+
+            plt.plot(orientation_error, label=label)
+
         plt.title('Orientation Error in degrees', fontsize=35)
         plt.xlabel("Time Steps (0.1s)", fontsize=25)
         plt.ylabel("Orrientation Error (deg)", fontsize=25)
         plt.ylim(0.0, 20.0)
+        plt.legend()
         plt.show()
         # plt.savefig(output_base.format(data_label.lower(), label.lower()))
         
