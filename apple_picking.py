@@ -6,9 +6,15 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Conv1D, Flatten, Dropout, MaxPooling1D, GlobalAveragePooling1D, LSTM
 from sklearn.utils import shuffle
 
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 import random
 import numpy as np
 import pandas as pd 
+PANDAS_VERSION = int(pd.__version__.split('.')[1])
+
 
 import math
 import matplotlib
@@ -21,21 +27,53 @@ ROOT = os.path.dirname(os.path.realpath(__file__))
 
 class ApplePicking:
 
-    def __init__(self, window_size, train_dir='training_data', test_dir='testing_data', model_folder='models', val_split=0.10):
+    def __init__(self, network_type, window_size, smoothing_window = 1, use_force=True,
+                 train_dir='training_data', test_dir='testing_data', model_folder='models'):
+
+
+        self.model = None
+
+        self.network_type = network_type
         self.train_dir = os.path.join(ROOT, train_dir)
         self.model_dir = os.path.join(ROOT, model_folder)
-        
+        self.test_dir = os.path.join(ROOT, test_dir)
+        self.model_name = '{}_ws{}_smooth{}{}.h5'.format(network_type, window_size, smoothing_window, '_noforce' if not use_force else '')
+
         self.window_size = window_size
-        self.INPUT_COLS = ['/manipulator_wrench.fx', '/manipulator_wrench.fy', '/manipulator_wrench.fz', '/manipulator_wrench.tx', '/manipulator_wrench.ty', '/manipulator_wrench.tz',  
-                           '/joint_states.shoulder_lift_joint', '/joint_states.elbow_joint', '/joint_states.wrist_1_joint', '/joint_states.wrist_2_joint', '/joint_states.wrist_3_joint']
+        self.smoothing_window = smoothing_window
+
+        joint_cols = ['/joint_states.shoulder_lift_joint', '/joint_states.elbow_joint', '/joint_states.wrist_1_joint',
+                      '/joint_states.wrist_2_joint', '/joint_states.wrist_3_joint']
+        force_cols = ['/manipulator_wrench.fx', '/manipulator_wrench.fy', '/manipulator_wrench.fz',
+                      '/manipulator_wrench.tx', '/manipulator_wrench.ty', '/manipulator_wrench.tz']
+
+        if use_force:
+            self.INPUT_COLS = force_cols + joint_cols
+        else:
+            self.INPUT_COLS = joint_cols
 
         self.OUTPUT_COLS = ['/ground_truth.x', '/ground_truth.y', '/ground_truth.z']
-        self.train, self.validation = self.load_all_data(val_split, is_smooth=False)
-        
-        test_folder = os.path.join(ROOT, test_dir)
-        test_files = [file for file in glob.glob(os.path.join(test_folder, "*.csv"), recursive=False)]
-        test_X, test_Y = self.get_data(test_files, is_smooth=False)
-        self.test = (test_X, test_Y)
+
+        self.train = None
+        self.validation = None
+        self.train_files = None
+        self.validation_files = None
+
+    @property
+    def model_path(self):
+        return os.path.join(self.model_dir, self.model_name)
+
+    def load_from_cache(self, load_data=False):
+        self.model = keras.models.load_model(self.model_path)
+        # Metadata for testing/validation data
+        with open(self.model_path.replace('.h5', '.pickle'), 'rb') as fh:
+            metadata = pickle.load(fh)
+
+        self.train_files = [os.path.join(self.train_dir, os.path.split(path)[-1]) for path in metadata['train']]
+        self.validation_files = [os.path.join(self.train_dir, os.path.split(path)[-1]) for path in metadata['validation']]
+        if load_data:
+            self.train, self.validation = self.load_all_data()
+
 
     def add_force_mag_data(self, row):
         fx = row['/wrench.fx']
@@ -66,13 +104,16 @@ class ApplePicking:
             Y.append(y)
         return X, Y
 
-    def smooth_data(self, df, window=3):
-        ALL_COLS = self.INPUT_COLS + self.OUTPUT_COLS
-        df = df[ALL_COLS].rolling(window, center=True).mean()
+    def smooth_data(self, df):
+        cols_to_smooth = [col for col in self.INPUT_COLS if col.startswith('/manipulator_wrench')]
+        if PANDAS_VERSION < 18:
+            df[cols_to_smooth] = pd.rolling_mean(df[cols_to_smooth], self.smoothing_window, self.smoothing_window)
+        else:
+            df[cols_to_smooth] = df[cols_to_smooth].rolling(self.smoothing_window).mean()
         df = df.dropna().reset_index(drop=True)
         return df
 
-    def get_data(self, files_list, is_smooth):
+    def get_data(self, files_list):
         X_data = []
         Y_data = []
         mode_col = '/mode./mode'
@@ -84,8 +125,7 @@ class ApplePicking:
             temp_df = temp_df.loc[temp_df[mode_col] == 3]
             temp_df = temp_df.dropna().reset_index(drop=True)
 
-            if is_smooth == True:
-                print("Smothing...")
+            if self.smoothing_window > 1:
                 temp_df = self.smooth_data(temp_df) # Smoothing using moving average filter
 
             temp_X, temp_Y = self.format_data(temp_df)
@@ -96,25 +136,29 @@ class ApplePicking:
         Y_data = np.array(Y_data, dtype=np.float64)
         return X_data, Y_data
 
-    def load_all_data(self, val_split, is_smooth=False):
+    def load_all_data(self, val_split=None):
         print ("Loading Data ...")
 
-        all_files = [file for file in glob.glob(os.path.join(self.train_dir, "*.csv"), recursive=False)]
-        random.shuffle(all_files)
+        if not self.train_files or not self.validation_files:
+            all_files = [file for file in glob.glob(os.path.join(self.train_dir, "*.csv"))]
+            random.shuffle(all_files)
 
-        split_idx = int(round(val_split*len(all_files)))
-        
-        val_files = all_files[0: split_idx]
-        train_files = all_files[split_idx: ]
-        
-        train_X, train_Y = self.get_data(train_files, is_smooth)
-        val_X, val_Y = self.get_data(val_files, is_smooth)
+            split_idx = int(round(val_split*len(all_files)))
 
-        print("\nNumber of Train fies: ", len(train_files))
-        print("Train data shape: {}, {}\n".format(train_X.shape, train_Y.shape))
-        print("Number of Val fies: ", len(val_files))
-        print("Test data shape: {}, {}\n".format(val_X.shape, val_Y.shape))
-        return (train_X, train_Y), (val_X, val_Y)
+            self.train_files = all_files[0: split_idx]
+            self.validation_files = all_files[split_idx: ]
+        
+        train = self.get_data(self.train_files)
+        validation = self.get_data(self.validation_files)
+
+        return train, validation
+
+    def load_test_data(self):
+
+        test_folder = os.path.join(ROOT, self.test_dir)
+        test_files = [file for file in glob.glob(os.path.join(test_folder, "*.csv"))]
+        test_X, test_Y = self.get_data(test_files)
+        return test_X, test_Y
 
     def perf_nnet_conv1D(self, feature_dim, output_dim, model_path):
         model = Sequential()
@@ -133,7 +177,6 @@ class ApplePicking:
         model.add(Dense(output_dim, activation='linear'))
         model.compile(loss='mae', optimizer="adam", metrics=['mae', 'accuracy'])
         print(model.summary())
-        model.save(model_path)
         return model
 
     def perf_nnet_ann(self, feature_dim, output_dim, model_path):
@@ -145,13 +188,13 @@ class ApplePicking:
         model.add(Dense(output_dim, activation='linear'))
         model.compile(loss='mae', optimizer="adam", metrics=['mae', 'accuracy'])
         print(model.summary())
-        model.save(model_path)
         return model
 
-    def train_network(self, net, n_epoch=1000, is_restore=False, clear_tmp=True):
+    def train_network(self, val_split, n_epoch=1000, clear_tmp=True):
         feature_dim = len(self.INPUT_COLS)
         output_dim = len(self.OUTPUT_COLS)
-        
+        self.train, self.validation = self.load_all_data(val_split)
+
         if not os.path.exists(self.model_dir):
             os.makedirs(self.model_dir)
 
@@ -160,33 +203,37 @@ class ApplePicking:
         if clear_tmp == True and os.path.exists(logdir): 
             os.system("rm -r " + logdir + "*")
 
-        model_name = 'force_vec_pred_' + net + '_ws' + str(self.window_size) + '_fdim' + str(feature_dim)  # + '_e' + str(n_epoch)
-        model_path = os.path.join(self.model_dir, '{}.h5'.format(model_name))
+        model_path = self.model_path
+
         tensorboard_cb = tf.keras.callbacks.TensorBoard(log_dir=logdir, histogram_freq=1)
         checkpoint_cb = tf.keras.callbacks.ModelCheckpoint(filepath=model_path, verbose=1, save_best_only=True)
 
         (train_inputs, train_labels) = self.train
         (val_inputs, val_labels) = self.validation
 
-        if net == 'ANN':
+        if self.network_type == 'ANN':
+
             train_inputs = train_inputs.reshape(-1, feature_dim)
             val_inputs = val_inputs.reshape(-1, feature_dim)
             print (train_inputs.shape, val_inputs.shape)
             self.model = self.perf_nnet_ann(feature_dim, output_dim, model_path)
 
-        if net == 'Conv1D':
+        elif self.network_type == 'Conv1D':
             self.model = self.perf_nnet_conv1D(feature_dim, output_dim, model_path)
 
-        if is_restore == True:
-            self.model = keras.models.load_model(model_path)
-            
-        self.model.fit(train_inputs, train_labels, epochs=n_epoch, verbose=1, callbacks=[tensorboard_cb, checkpoint_cb], validation_data=(val_inputs, val_labels), shuffle=True)
+        else:
+            raise NotImplementedError('Currently no implementation available for model {}'.format(self.network_type))
 
-    def predict_network(self, net, model_name, inputs):
-        if net =='ANN':
-            inputs = inputs.reshape(inputs.shape[0], inputs.shape[2])
-        model_path = os.path.join(self.model_dir, '{}.h5'.format(model_name))
-        self.model = keras.models.load_model(model_path)
+        self.model.fit(train_inputs, train_labels, epochs=n_epoch, verbose=1, callbacks=[tensorboard_cb, checkpoint_cb], validation_data=(val_inputs, val_labels), shuffle=True)
+        self.model.save(model_path)
+        metadata = {
+            'validation': self.validation_files,
+            'train': self.train_files
+        }
+        with open(model_path.replace('.h5', '.pickle'), 'wb') as fh:
+            pickle.dump(metadata, fh)
+
+    def predict_network(self, inputs):
         predictions = self.model.predict(inputs)
         return predictions
 
@@ -205,33 +252,43 @@ class ApplePicking:
         return orientation_error
 
 if __name__ == '__main__':
-    
-    mode = 'train_mode'
+
+    # Call, e.g. python apple_picking.py train ANN 3
+
+    mode = 'train'
+    network = 'ANN'      # ANN, Conv1D
+    smooth = 1
     if len(sys.argv) > 1:
         mode = sys.argv[1]
 
-    apple_picking_obj = ApplePicking(window_size=10)
+    if len(sys.argv) > 2:
+        network = sys.argv[2]
 
-    if mode == 'train_mode':
-        apple_picking_obj.train_network(net='Conv1D', is_restore=False)
+    if len(sys.argv) > 3:
+        smooth = int(sys.argv[3])
 
-    elif mode == 'predict_mode':
-        # model_name = 'force_vec_pred_ws10_fdim11_Conv1D'
-        model_name =  'force_vec_pred_Conv1D_ws10_fdim11'
+    apple_model = ApplePicking(network, window_size=10, smoothing_window=smooth)
+
+    if mode == 'train':
+        apple_model.train_network(0.10, n_epoch=1000)
+
+    elif mode == 'predict':
+
+        apple_model.load_from_cache(load_data=True)
 
         output_base = os.path.join(ROOT, 'output_{}_{}.png')
 
         data_label = 'Training'
         
         if data_label == 'Testing':
-            inputs, outputs = apple_picking_obj.test
+            inputs, outputs = apple_model.load_test_data()
 
         elif data_label == 'Training':
-            inputs, outputs = apple_picking_obj.validation
+            inputs, outputs = apple_model.validation
 
         inputs, outputs = shuffle(inputs, outputs, random_state=0)
-        predictions = apple_picking_obj.predict_network('Conv1D', model_name, inputs)
-        orientation_error = apple_picking_obj.orientation_error(outputs, predictions)
+        predictions = apple_model.predict_network(inputs)
+        orientation_error = apple_model.orientation_error(outputs, predictions)
         
         orientation_arr = np.array(orientation_error)
         print("Maximum Ang Error: ", np.max(orientation_arr))
