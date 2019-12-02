@@ -273,7 +273,7 @@ if __name__ == '__main__':
     # Call, e.g. python apple_picking.py train ANN 3
 
     mode = 'train'
-    network = 'ANN'      # ANN, Conv1D
+    network = 'ANN'      # ANN, Conv1D, LSTM
     smooth = 1
     window_size = 5
 
