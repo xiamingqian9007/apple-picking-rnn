@@ -301,6 +301,8 @@ if __name__ == '__main__':
 
         # Plotting the error in the orientation
         plt.clf()
+        labels = []
+        errors = []
         for label, dataset in [['Training', apple_model.train],
                                ['Validation', apple_model.validation],
                                ['Testing', apple_model.load_test_data()]]:
@@ -311,13 +313,14 @@ if __name__ == '__main__':
             orientation_error = apple_model.orientation_error(outputs, predictions)
             orientation_arr = np.array(orientation_error)
 
-            plt.plot(orientation_error, label=label)
+            labels.append(label)
+            errors.append(orientation_error)
+
+        plt.boxplot(errors, labels=labels)
 
         plt.title('Orientation Error in degrees', fontsize=35)
         plt.xlabel("Time Steps (0.1s)", fontsize=25)
         plt.ylabel("Orrientation Error (deg)", fontsize=25)
-        plt.ylim(0.0, 20.0)
-        plt.legend()
         plt.show()
         # plt.savefig(output_base.format(data_label.lower(), label.lower()))
         
