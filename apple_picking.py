@@ -179,6 +179,17 @@ class ApplePicking:
         print(model.summary())
         return model
 
+    def perf_nnet_LSTM(self, feature_dim, output_dim, model_path):
+        model = Sequential()
+        model.add(LSTM(32, return_sequences=True, input_shape=(self.window_size, feature_dim)))
+        # model.add(LSTM(hidden_neurons, return_sequences=True))
+        model.add(LSTM(32))
+        model.add(Dense(output_dim, activation='linear'))
+        model.compile(loss='mae', optimizer="adam", metrics=['mae', 'accuracy'])
+        print(model.summary())
+        model.save(model_path)
+        return model
+
     def perf_nnet_ann(self, feature_dim, output_dim, model_path):
         model = Sequential()
         model.add(Dense(32, activation='relu', input_shape=(feature_dim,)))
@@ -217,14 +228,20 @@ class ApplePicking:
             val_inputs = val_inputs.reshape(-1, feature_dim)
             print (train_inputs.shape, val_inputs.shape)
             self.model = self.perf_nnet_ann(feature_dim, output_dim, model_path)
+            shuffle = True
 
         elif self.network_type == 'Conv1D':
             self.model = self.perf_nnet_conv1D(feature_dim, output_dim, model_path)
+            shuffle = True
+
+        elif self.network_type == 'LSTM':
+            self.model = self.perf_nnet_LSTM(feature_dim, output_dim, model_path)
+            shuffle = False
 
         else:
             raise NotImplementedError('Currently no implementation available for model {}'.format(self.network_type))
 
-        self.model.fit(train_inputs, train_labels, epochs=n_epoch, verbose=1, callbacks=[tensorboard_cb, checkpoint_cb], validation_data=(val_inputs, val_labels), shuffle=True)
+        self.model.fit(train_inputs, train_labels, epochs=n_epoch, verbose=1, callbacks=[tensorboard_cb, checkpoint_cb], validation_data=(val_inputs, val_labels), shuffle=shuffle)
         self.model.save(model_path)
         metadata = {
             'validation': self.validation_files,
@@ -258,6 +275,8 @@ if __name__ == '__main__':
     mode = 'train'
     network = 'ANN'      # ANN, Conv1D
     smooth = 1
+    window_size = 5
+
     if len(sys.argv) > 1:
         mode = sys.argv[1]
 
@@ -267,7 +286,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 3:
         smooth = int(sys.argv[3])
 
-    apple_model = ApplePicking(network, window_size=10, smoothing_window=smooth)
+    apple_model = ApplePicking(network, window_size=window_size, smoothing_window=smooth)
 
     if mode == 'train':
         apple_model.train_network(0.10, n_epoch=1000)
