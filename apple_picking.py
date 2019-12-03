@@ -222,8 +222,10 @@ class ApplePicking:
         (train_inputs, train_labels) = self.train
         (val_inputs, val_labels) = self.validation
 
-        if self.network_type == 'ANN':
+        print (train_inputs.shape, train_labels.shape)
+        print (val_inputs.shape, val_labels.shape)
 
+        if self.network_type == 'ANN':
             train_inputs = train_inputs.reshape(-1, feature_dim)
             val_inputs = val_inputs.reshape(-1, feature_dim)
             print (train_inputs.shape, val_inputs.shape)
@@ -286,6 +288,9 @@ if __name__ == '__main__':
     if len(sys.argv) > 3:
         smooth = int(sys.argv[3])
 
+    if network == 'ANN':
+        window_size = 1
+        
     apple_model = ApplePicking(network, window_size=window_size, smoothing_window=smooth)
 
     if mode == 'train':
