@@ -1,0 +1,88 @@
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import glob
+
+
+from tensorflow import keras
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Conv1D, Flatten, Dropout, MaxPooling1D, GlobalAveragePooling1D, LSTM
+from sklearn.utils import shuffle
+
+import random
+
+import math
+import matplotlib
+import matplotlib.pyplot as plt
+
+import os
+import sys
+
+root = os.path.dirname(os.path.realpath('__file__'))
+
+filenames = os.listdir(root)
+Folder_Path = root         
+SaveFile_Path =  root      
+SaveFile_Name = 'all.csv'
+
+df = pd.read_csv(root +'\\'+ filenames[4])
+
+df.to_csv(SaveFile_Path+'\\'+ SaveFile_Name,encoding="utf_8_sig",index=False)
+
+for i in range(5,len(filenames)-6):
+    df = pd.read_csv(Folder_Path + '\\'+ filenames[i])
+    df.to_csv(SaveFile_Path+'\\'+ SaveFile_Name,encoding="utf_8_sig",index=False, header=False, mode='a+')
+
+
+data1 = pd.read_csv('training_input.csv')
+data2 = pd.read_csv('training_output.csv')
+
+
+x = data1.iloc[:,1:21]
+y = data2.iloc[:,1:4]
+
+[a,b]=np.shape(x)
+[m,n] = np.shape(y)
+
+model1 = tf.keras.Sequential()
+model1.add(tf.keras.layers.Dense(12,input_shape=(b,),activation = 'relu'))  
+model1.add(Dropout(0.2))
+model1.add(tf.keras.layers.Dense(24,activation = 'relu'))  
+model1.add(Dropout(0.2))
+model1.add(tf.keras.layers.Dense(n))
+
+model1.compile(optimizer='adam',loss = 'mse')
+
+model1.fit(x,y,epochs=15)
+
+
+
+model2 = tf.keras.Sequential()
+model2.add(Conv1D(32, 3, activation='relu', input_shape=(b,20)))
+model2.add(Conv1D(64, 3, activation='relu'))
+        
+model2.add(Dropout(0.3))
+
+model2.add(Conv1D(128, 3, activation='relu'))
+        
+model2.add(MaxPooling1D(2))
+    
+model2.add(Dropout(0.3))
+
+model2.add(Flatten())
+model2.add(Dense(n, activation='linear'))
+model2.compile(loss='mae', optimizer="adam", metrics=['mae', 'accuracy'])
+
+
+model2.summary()
+
+model2.compile(optimizer='adam',loss = 'mse')
+
+model2.fit(x,y,epochs=15)
+
+
+
+
+
+
